@@ -1,0 +1,9 @@
+{
+  "name": "AEMO Forecast",
+  "documentation": "https://github.com/obsoolete/aemo_forecast",
+  "homeassistant": "2024.0.0",
+  "render_readme": true,
+  "content_in_root": false,
+  "category": "integration",
+  "version": "1.0.0"
+}

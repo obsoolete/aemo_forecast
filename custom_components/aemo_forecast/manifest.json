@@ -1,0 +1,13 @@
+{
+  "domain": "aemo_forecast",
+  "name": "AEMO Forecast",
+  "documentation": "https://github.com/obsoolete/aemo_forecast",
+  "issue_tracker": "https://github.com/obsoolete/aemo_forecast/issues",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "dependencies": [],
+  "codeowners": ["@obsoolete"],
+  "requirements": ["requests>=2.25.1"],
+  "config_flow": true,
+  "version": "1.0.0"
+}
