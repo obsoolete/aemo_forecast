@@ -40,6 +40,7 @@ async def async_setup_entry(
             AEMOForecastNextSpikeWindowSensor(coordinator),
             AEMOForecastTotalForecastDurationSensor(coordinator),
             AEMOForecastMaxPriceSensor(coordinator),
+            AEMOForecastMinPriceSensor(coordinator),
         ]
     )
 
