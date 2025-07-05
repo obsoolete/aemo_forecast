@@ -17,7 +17,7 @@ from homeassistant.config_entries import ConfigEntry
 
 import aiohttp
 
-from .const import CONF_STATE_ID, SPIKE_WINDOWS, ABOVE_THRESHOLD_DURATION, NEXT_SPIKE_WINDOW, NEXT_SPIKE_WINDOW_PRICE, TOTAL_FORECAST_DURATION, MAX_PRICE, MAX_PRICE_TIME, THRESHOLD_PRICE
+from .const import CONF_STATE_ID, SPIKE_WINDOWS, ABOVE_THRESHOLD_DURATION, NEXT_SPIKE_WINDOW, NEXT_SPIKE_WINDOW_PRICE, TOTAL_FORECAST_DURATION, MAX_PRICE, MAX_PRICE_TIME, MIN_PRICE, MIN_PRICE_TIME, THRESHOLD_PRICE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -140,9 +140,17 @@ class AEMOForecastDataUpdateCoordinator(DataUpdateCoordinator):
             if not max_rrp:
                 _LOGGER.warning("No maximum price found in forecast data.")
                 raise UpdateFailed("No maximum price found in forecast data")
+
+            # Determine the minimum price in the forecast
+            min_rrp = min(time_rrp_array, key=lambda x: x["rrp"], default=None)
+            if not min_rrp:
+                _LOGGER.warning("No minimum price found in forecast data.")
+                raise UpdateFailed("No minimum price found in forecast data")
             
             self.data[MAX_PRICE] = max_rrp["rrp"]
             self.data[MAX_PRICE_TIME] = max_rrp["time"]
+            self.data[MIN_PRICE] = min_rrp["rrp"]
+            self.data[MIN_PRICE_TIME] = min_rrp["time"]
 
             # Count periods RRP > threshold
             self.data[SPIKE_WINDOWS] = sum(1 for item in time_rrp_array if item["rrp"] > threshold)

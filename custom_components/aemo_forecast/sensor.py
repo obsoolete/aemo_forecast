@@ -15,7 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.const import UnitOfTime
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, SPIKE_WINDOWS, ABOVE_THRESHOLD_DURATION, NEXT_SPIKE_WINDOW, NEXT_SPIKE_WINDOW_PRICE, TOTAL_FORECAST_DURATION, MAX_PRICE, MAX_PRICE_TIME
+from .const import DOMAIN, SPIKE_WINDOWS, ABOVE_THRESHOLD_DURATION, NEXT_SPIKE_WINDOW, NEXT_SPIKE_WINDOW_PRICE, TOTAL_FORECAST_DURATION, MAX_PRICE, MAX_PRICE_TIME, MIN_PRICE, MIN_PRICE_TIME
 
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -155,4 +155,26 @@ class AEMOForecastMaxPriceSensor(AEMOForecastSensor):
         time_of_max = self.coordinator.data.get(MAX_PRICE_TIME)
         if time_of_max is not None:
             attributes[MAX_PRICE_TIME] = time_of_max
+        return attributes
+
+class AEMOForecastMinPriceSensor(AEMOForecastSensor):
+    """Sensor which shows the minimum price in the forecast."""
+
+    _attr_native_unit_of_measurement = "$/kWh"
+    _attr_device_class = SensorDeviceClass.MONETARY
+
+    def __init__(self, coordinator):
+        """Initialize the minimum price sensor."""
+        super().__init__(coordinator, MIN_PRICE)
+        self._attr_name = "AEMO Forecast Minimum Forecasted Price"
+        self._attr_unique_id = f"aemo_forecast_{coordinator.state_id}_{MIN_PRICE}"
+    
+    @property
+    def extra_state_attributes(self):
+        # Start with the base attributes defined in LocalvoltsSensor
+        attributes = super().extra_state_attributes
+        # Add the 'demandInterval' attribute if it's available in the coordinator data
+        time_of_min = self.coordinator.data.get(MIN_PRICE_TIME)
+        if time_of_min is not None:
+            attributes[MIN_PRICE_TIME] = time_of_min
         return attributes
