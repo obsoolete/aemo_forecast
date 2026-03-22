@@ -51,51 +51,65 @@ class AEMOForecastDataUpdateCoordinator(DataUpdateCoordinator):
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch data from the API endpoint."""
+        """Fetch data using the two-step API process."""
         
-        url: str = "https://visualisations.aemo.com.au/aemo/apps/api/report/5MIN"
-        payload : dict[str, list[str]] = {"timeScale": ["30MIN"]}
-
+        session = async_get_clientsession(self.hass)
+        
+        # --- Step 1: GET API Key from config ---
+        config_url = "https://dashboards.public.aemo.com.au/config.json"
         try:
-            session = async_get_clientsession(self.hass)
-            async with session.post(url, data=json.dumps(payload)) as response:
+            async with session.get(config_url) as resp:
+                resp.raise_for_status()
+                config_json = await resp.json()
+                api_key = config_json.get("xApiKey")
+        except Exception as e:
+            _LOGGER.error("Failed to fetch AEMO config for API key: %s", str(e))
+            raise UpdateFailed(f"Error fetching API key: {e}")
+
+        if not api_key:
+            _LOGGER.error("xApiKey not found in config.json")
+            raise UpdateFailed("xApiKey missing from AEMO config")
+
+        # --- Step 2: GET Data using the API key ---
+        data_url = "https://dashboards.public.aemo.com.au/NEM/v1/PWS/NEMDashboard/priceAndDemand?timescale=30MIN"
+        headers = {"X-Api-Key": api_key}
+        
+        try:
+            async with session.get(data_url, headers=headers) as response:
                 if response.status == 401:
-                    _LOGGER.critical("Unauthorized access")
+                    _LOGGER.critical("Unauthorized access - API key might be invalid")
                     raise UpdateFailed("Unauthorized access")
                 elif response.status == 403:
-                    _LOGGER.critical("Forbidden")
+                    _LOGGER.critical("Forbidden access to AEMO dashboard API")
                     raise UpdateFailed("Forbidden")
 
                 response.raise_for_status()
-                data: Any = await response.json()
+                payload: Any = await response.json()
                 
-                # Check if the response contains a key called "5MIN"
-                if "5MIN" not in data:
-                    _LOGGER.warning("No data received")
+                # Check structure
+                items = payload.get("data", {}).get("items", [])
+                if not items:
+                    _LOGGER.warning("No data items received from AEMO")
                     raise UpdateFailed("No data received")               
         
-        
         except aiohttp.ClientError as e:
-            _LOGGER.error("Failed to fetch data: %s", str(e))
+            _LOGGER.error("Failed to fetch price data: %s", str(e))
             raise UpdateFailed(f"Error communicating with API: {e}") from e
 
+        # --------------------------------------------
         # Process data
-        # Extract the "5MIN" array from the response
-        entries = data.get("5MIN", [])
+        # --------------------------------------------
+        region_id = f"{self.state_id}1"
 
-        # Filter entries: REGION == "NSW1" AND PERIODTYPE == "FORECAST"
-        filtered = [
-            entry for entry in entries
-            if entry.get("REGION") == f"{self.state_id}1" and entry.get("PERIODTYPE") == "FORECAST"
-        ]
-
-        # Build array of dictionaries with SETTLEMENTDATE and RRP converted to $/kWh
+        # Filter: regionId matches AND periodType is FORECAST
+        # Note: settlementDate and rrp are camelCase in the new API
         time_rrp_array = [
             {
-                "time": entry["SETTLEMENTDATE"],
-                "rrp": entry["RRP"] / 1000.0  # Convert from $/MWh to $/kWh
+                "time": entry["settlementDate"],
+                "rrp": entry["rrp"] / 1000.0  # Convert from $/MWh to $/kWh
             }
-            for entry in filtered
+            for entry in items
+            if entry.get("regionId") == region_id and entry.get("periodType") == "FORECAST"
         ]
 
         self.data = {}
