@@ -8,6 +8,8 @@ CONF_STATE_ID = "state_id"
 THRESHOLD_PRICE = "thresholdPrice"  # Threshold price in $/kWh
 
 # Sensor keys
+PRICE_FORECAST = "price_forecast"
+TIME_RRP_ARRAY = "time_rrp_array"
 SPIKE_WINDOWS = "spike_windows"
 ABOVE_THRESHOLD_DURATION = "above_threshold_duration"
 TOTAL_FORECAST_DURATION = "total_forecast_duration"

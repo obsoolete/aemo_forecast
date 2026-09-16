@@ -1,0 +1,42 @@
+title: AEMO Pricing
+views:
+  - title: Forecast
+    path: forecast
+    icon: mdi:chart-line
+    cards:
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Wholesale price forecast
+          show_states: true
+          colorize_states: true
+        graph_span: 24h
+        span:
+          start: hour
+        now:
+          show: true
+          label: Now
+        apex_config:
+          chart:
+            height: 360
+          stroke:
+            width: 3
+          tooltip:
+            x:
+              format: ddd HH:mm
+          yaxis:
+            decimalsInFloat: 3
+            title:
+              text: $/kWh
+        series:
+          - entity: sensor.aemo_forecast_price_forecast
+            name: Forecast price
+            type: line
+            curve: stepline
+            float_precision: 4
+            extend_to: false
+            data_generator: |
+              return (entity.attributes.forecast || []).map((entry) => [
+                new Date(entry.time).getTime(),
+                entry.price
+              ]);

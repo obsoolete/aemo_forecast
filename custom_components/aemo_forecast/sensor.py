@@ -15,7 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.const import UnitOfTime
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, SPIKE_WINDOWS, ABOVE_THRESHOLD_DURATION, NEXT_SPIKE_WINDOW, NEXT_SPIKE_WINDOW_PRICE, TOTAL_FORECAST_DURATION, MAX_PRICE, MAX_PRICE_TIME, MIN_PRICE, MIN_PRICE_TIME
+from .const import DOMAIN, PRICE_FORECAST, TIME_RRP_ARRAY, SPIKE_WINDOWS, ABOVE_THRESHOLD_DURATION, NEXT_SPIKE_WINDOW, NEXT_SPIKE_WINDOW_PRICE, TOTAL_FORECAST_DURATION, MAX_PRICE, MAX_PRICE_TIME, MIN_PRICE, MIN_PRICE_TIME
 
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -35,6 +35,7 @@ async def async_setup_entry(
     async_add_entities(
         [
 
+            AEMOForecastPriceForecastSensor(coordinator),
             AEMOForecastSpikeWindowsSensor(coordinator),
             AEMOForecastAboveThresholdDurationSensor(coordinator),
             AEMOForecastNextSpikeWindowSensor(coordinator),
@@ -73,6 +74,34 @@ class AEMOForecastSensor(CoordinatorEntity, SensorEntity):
         return {
             "lastUpdate": last_update.isoformat() if last_update else None,
         }
+
+
+class AEMOForecastPriceForecastSensor(AEMOForecastSensor):
+    """Sensor exposing the price forecast for dashboard cards."""
+
+    _attr_native_unit_of_measurement = "$/kWh"
+
+    def __init__(self, coordinator):
+        """Initialize the price forecast sensor."""
+        super().__init__(coordinator, TIME_RRP_ARRAY)
+        self._attr_name = "AEMO Forecast Price Forecast"
+        self._attr_unique_id = f"aemo_forecast_{coordinator.state_id}_{PRICE_FORECAST}"
+
+    @property
+    def native_value(self):
+        """Return the first available forecast price."""
+        forecast = self.coordinator.data.get(TIME_RRP_ARRAY, [])
+        return forecast[0]["rrp"] if forecast else None
+
+    @property
+    def extra_state_attributes(self):
+        """Return forecast points in a dashboard-friendly format."""
+        attributes = super().extra_state_attributes
+        attributes["forecast"] = [
+            {"time": item["time"], "price": item["rrp"]}
+            for item in self.coordinator.data.get(TIME_RRP_ARRAY, [])
+        ]
+        return attributes
 
 
 class AEMOForecastSpikeWindowsSensor(AEMOForecastSensor):
