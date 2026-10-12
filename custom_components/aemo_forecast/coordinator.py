@@ -1,10 +1,9 @@
 """Coordinator for AEMO Forecast integration."""
 
-import datetime
 import logging
 import json
 from typing import Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from homeassistant.core import HomeAssistant
@@ -22,6 +21,14 @@ from .const import CONF_STATE_ID, SPIKE_WINDOWS, ABOVE_THRESHOLD_DURATION, NEXT_
 _LOGGER = logging.getLogger(__name__)
 
 SCAN_INTERVAL = timedelta(minutes=5)  # Update every 5 minutes
+
+# NEM time is always AEST (UTC+10), with no daylight saving
+NEM_TZ = timezone(timedelta(hours=10))
+
+
+def _parse_nem_time(value: str) -> datetime:
+    """Parse a naive AEMO timestamp as fixed UTC+10."""
+    return datetime.fromisoformat(value).replace(tzinfo=NEM_TZ)
 
 class AEMOForecastDataUpdateCoordinator(DataUpdateCoordinator):
     """DataUpdateCoordinator to manage fetching data from AEMOForecast API."""
@@ -92,7 +99,7 @@ class AEMOForecastDataUpdateCoordinator(DataUpdateCoordinator):
         # Build array of dictionaries with SETTLEMENTDATE and RRP converted to $/kWh
         time_rrp_array = [
             {
-                "time": entry["SETTLEMENTDATE"],
+                "time": _parse_nem_time(entry["SETTLEMENTDATE"]).isoformat(),
                 "rrp": entry["RRP"] / 1000.0  # Convert from $/MWh to $/kWh
             }
             for entry in filtered
