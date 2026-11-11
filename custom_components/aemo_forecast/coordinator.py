@@ -1,7 +1,6 @@
 """Coordinator for AEMO Forecast integration."""
 
 import logging
-import json
 from typing import Any
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -26,9 +25,16 @@ SCAN_INTERVAL = timedelta(minutes=5)  # Update every 5 minutes
 NEM_TZ = timezone(timedelta(hours=10))
 
 
+CONFIG_URL = "https://dashboards.public.aemo.com.au/config.json"
+PRICE_URL = "https://dashboards.public.aemo.com.au/NEM/v1/PWS/NEMDashboard/priceAndDemand"
+
+
 def _parse_nem_time(value: str) -> datetime:
-    """Parse a naive AEMO timestamp as fixed UTC+10."""
-    return datetime.fromisoformat(value).replace(tzinfo=NEM_TZ)
+    """Parse an AEMO timestamp, assuming fixed UTC+10 when no offset is given."""
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=NEM_TZ)
+    return parsed
 
 class AEMOForecastDataUpdateCoordinator(DataUpdateCoordinator):
     """DataUpdateCoordinator to manage fetching data from AEMOForecast API."""
@@ -48,7 +54,7 @@ class AEMOForecastDataUpdateCoordinator(DataUpdateCoordinator):
         self.numbers[THRESHOLD_PRICE] = config_entry.options.get(THRESHOLD_PRICE, 1.0)
         
         self.data: dict[str, Any] = {}
-
+        self._api_key: str | None = None
 
         super().__init__(
             hass,
@@ -57,50 +63,65 @@ class AEMOForecastDataUpdateCoordinator(DataUpdateCoordinator):
             update_interval=SCAN_INTERVAL,
         )
 
+    async def _async_fetch_api_key(self) -> str:
+        """Fetch the public x-api-key used by the AEMO dashboard."""
+        session = async_get_clientsession(self.hass)
+        async with session.get(CONFIG_URL) as response:
+            response.raise_for_status()
+            config: Any = await response.json(content_type=None)
+
+        key = config.get("xApiKey") if isinstance(config, dict) else None
+        if not key:
+            raise UpdateFailed("AEMO config did not contain an API key")
+        return key
+
+    async def _async_fetch_prices(self, api_key: str) -> tuple[int, Any]:
+        """Request price data, returning the HTTP status and parsed body."""
+        session = async_get_clientsession(self.hass)
+        async with session.get(
+            PRICE_URL,
+            params={"timescale": "30MIN"},
+            headers={"x-api-key": api_key},
+        ) as response:
+            if response.status in (401, 403):
+                return response.status, None
+            response.raise_for_status()
+            return response.status, await response.json(content_type=None)
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the API endpoint."""
-        
-        url: str = "https://visualisations.aemo.com.au/aemo/apps/api/report/5MIN"
-        payload : dict[str, list[str]] = {"timeScale": ["30MIN"]}
 
         try:
-            session = async_get_clientsession(self.hass)
-            async with session.post(url, data=json.dumps(payload)) as response:
-                if response.status == 401:
-                    _LOGGER.critical("Unauthorized access")
-                    raise UpdateFailed("Unauthorized access")
-                elif response.status == 403:
-                    _LOGGER.critical("Forbidden")
-                    raise UpdateFailed("Forbidden")
+            if self._api_key is None:
+                self._api_key = await self._async_fetch_api_key()
 
-                response.raise_for_status()
-                data: Any = await response.json()
-                
-                # Check if the response contains a key called "5MIN"
-                if "5MIN" not in data:
-                    _LOGGER.warning("No data received")
-                    raise UpdateFailed("No data received")               
-        
-        
+            status, data = await self._async_fetch_prices(self._api_key)
+            if status in (401, 403):
+                # Key may have been rotated; refresh once and retry
+                self._api_key = await self._async_fetch_api_key()
+                status, data = await self._async_fetch_prices(self._api_key)
+                if status in (401, 403):
+                    self._api_key = None
+                    raise UpdateFailed(f"AEMO API rejected the API key (HTTP {status})")
         except aiohttp.ClientError as e:
             _LOGGER.error("Failed to fetch data: %s", str(e))
             raise UpdateFailed(f"Error communicating with API: {e}") from e
 
-        # Process data
-        # Extract the "5MIN" array from the response
-        entries = data.get("5MIN", [])
+        entries = (data or {}).get("data", {}).get("items")
+        if not entries:
+            _LOGGER.warning("No data received")
+            raise UpdateFailed("No data received")
 
-        # Filter entries: REGION == "NSW1" AND PERIODTYPE == "FORECAST"
+        region = f"{self.state_id}1"
         filtered = [
             entry for entry in entries
-            if entry.get("REGION") == f"{self.state_id}1" and entry.get("PERIODTYPE") == "FORECAST"
+            if entry.get("regionId") == region and entry.get("periodType") == "FORECAST"
         ]
 
-        # Build array of dictionaries with SETTLEMENTDATE and RRP converted to $/kWh
         time_rrp_array = [
             {
-                "time": _parse_nem_time(entry["SETTLEMENTDATE"]).isoformat(),
-                "rrp": entry["RRP"] / 1000.0  # Convert from $/MWh to $/kWh
+                "time": _parse_nem_time(entry["settlementDate"]).isoformat(),
+                "rrp": entry["rrp"] / 1000.0  # Convert from $/MWh to $/kWh
             }
             for entry in filtered
         ]

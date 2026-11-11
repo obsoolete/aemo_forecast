@@ -2,33 +2,33 @@ import requests
 import csv
 from datetime import datetime, timedelta
 
-url = "https://visualisations.aemo.com.au/aemo/apps/api/report/5MIN"
-
-payload = {
-    "timeScale": ["30MIN"]
-}
+config_url = "https://dashboards.public.aemo.com.au/config.json"
+url = "https://dashboards.public.aemo.com.au/NEM/v1/PWS/NEMDashboard/priceAndDemand"
 
 try:
-    # Make the POST request
-    response = requests.post(url, json=payload)
+    # The dashboard publishes its API key in config.json
+    config_response = requests.get(config_url)
+    config_response.raise_for_status()
+    api_key = config_response.json()["xApiKey"]
+
+    response = requests.get(url, params={"timescale": "30MIN"}, headers={"x-api-key": api_key})
     response.raise_for_status()  # Raise error if status not 2xx
 
     data = response.json()  # Parse JSON response
 
-    # Extract the "5MIN" array from the response
-    entries = data.get("5MIN", [])
+    entries = data["data"]["items"]
 
-    # Filter entries: REGION == "NSW1" AND PERIODTYPE == "FORECAST"
+    # Filter entries: regionId == "NSW1" AND periodType == "FORECAST"
     filtered = [
         entry for entry in entries
-        if entry.get("REGION") == "NSW1" and entry.get("PERIODTYPE") == "FORECAST"
+        if entry.get("regionId") == "NSW1" and entry.get("periodType") == "FORECAST"
     ]
 
-    # Build array of dictionaries with SETTLEMENTDATE and RRP converted to $/kWh
+    # Build array of dictionaries with settlementDate and rrp converted to $/kWh
     time_rrp_array = [
         {
-            "time": entry["SETTLEMENTDATE"],
-            "rrp": entry["RRP"] / 1000.0  # Convert from $/MWh to $/kWh
+            "time": entry["settlementDate"],
+            "rrp": entry["rrp"] / 1000.0  # Convert from $/MWh to $/kWh
         }
         for entry in filtered
     ]
